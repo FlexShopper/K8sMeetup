@@ -1,0 +1,153 @@
+Baby's First Cluster
+  getting started with minikube
+  Leo Stanley - etc
+
+Minikube
+  a tool for booting up a single-node kubernetes cluster
+  a relatively low effort setup allows you to start playing with a kubernetes clusters very quickly
+    free! no aws hours required!
+  utilize the same kuberentes tools and workflow as a production system
+    a single node means inherent limitations on resources and capabilities
+
+ - putting minikube in context
+
+Kuberentes
+  what is kuberenetes?
+  a system for automating the deployment, scaling and managment of your containerized applications.
+    - most often used with docker, but others exist like (lxd (lex-dee) or rkt (rocket))
+    - we'll just say docker but its interchangable for any compatible container system
+  define kuberentes objects written in JSON or YAML to describe the desired state of your cluster
+    state of the cluster, i.e. which containers should be running, how many, behind which load balancer, at which ip etc..
+
+Components of a Kube System
+  kubectl
+  -------
+  objects
+  masters
+  nodes
+  pods
+
+
+  kubectl is the command line unitility for managing your kuberentes cluster.
+  separating kubectl out because it's not really part of the cluster, it's the swiss-army knife of the kuberentes devops engineer
+  kubectl translates your commands into kubernetes API calls that are sent to an api server for your cluster
+  anything you want your cluster to do can be acheived through the use of kubectl
+  other abstractions exist, you could send commands to the api server with a web ui, but you could also use something like postman or even curl
+
+
+  onto the cluster...
+  'starting at the lowest level'
+
+  pod
+    an atomic instance of a containerized application (or multiple tightly coupled containerized apps)
+    pods share a port space and network address and can communicate with eachother via localhost
+    perhaps you have a microservice api backed by a mysql data source - your application server lives in one container, your database server in another, but they are deployed or destroyed together as a single pod unit
+    any applications running inside a a pod share a port space
+    pods also share volumes,
+      - volumes i.e. a shared directory between the container and the host file system that persists even if the container dies
+    pods are ephemeral and can be killed by kuberentes at any time
+      - build your applications with this in mind - no local state, rely on shared state via database or something like redis
+    deployed onto nodes
+    pod replicas ensure high availability
+    can be configured to expose health and readiness checks to guide the kubernetes system
+
+  node
+    a designated worker machine within your kubernetes cluster
+    could be a machine or a vm
+    every node runs an application called kubelet along with docker
+      - the program actually responsible for configuring, deploying and killing pods
+      - when told to deploy pods kubelet leverages the familiar docker api to inflate pod containers
+      - if you sshd into a node and executed `docker ps` or `docker images` you would see docker resources being managed by kubelet on that node
+    nodes are given instructions by the master to create or destroy pods
+      - reports information about pods and their status as well as the status of available node resources (disk, mem, cpu) back to the masters so that they can coordinate the distribution of pods across multiple nodes
+    spreading pods across multiple nodes ensures continued availability of your application in case of any indivudal node failures
+    pods impacted by a dead node are automatically rescheduled across healthy nodes, keeping the application alive while a failing node is restored or replaced.
+    under sudden heavy load and all resources maxed? simply add additional nodes to the cluster and tell kube to replicate a few more pods
+      - scaling becomes extremely managable and effeicient - a win for programmer egos and for management
+    when deploying new versions of your application, kubernetes spins up newly updated pods and then gradually shuts down pods running hte old version allowing for 0-effort 0-downtime updates.
+
+  master
+    a server responsible for maintaining the desired state of your cluster
+    in a production system it is typical to run multiple instances of the master to ensure high availability, but only one master, called the leader, actually issues commands to the cluster. if the leader dies, one of the other masters takes over.
+    masters have a self election algorithm that allows them to choose a new leader on their own
+    4 main sub-components
+      apiserver - exposes the api used by engineers or application to issue changes to the cluster state
+      etcd - a distributed key value store responsible for storing the data representing the desired cluster state
+        - imagine kinda like redis but distrubted
+        - provides very strong garunutess for reading and writing distributed state
+        - an ideal system for managing the state of all your business infrastructure
+      controller-manager - core logic that examines the current cluster state as well as the desired cluster state and determines which steps need to be taken in order to acheive the desired state.
+      scheduler - tabulates system resource use across nodes in the cluster in order to calculates how to effeciently distributed pod load across nodes
+    if a node crashes or otherwise fails the masters automatically reschedule pods across remaining healthy nodes
+
+  objects
+    objects are the data structures that engineers use to describe the desired cluster state to kuberentes
+    objects can be written as JSON or as YAML
+      the docs suggest a preference for YAML and the community tends to follow that but they're functionally identical
+      json could be a more conveninet option for developers who want to build programs that create objects in the cluster
+    define your object in a file and then save it to the cluster state with kubectl
+    kubectl create -f ./cool-pod.yaml
+    more on objects later
+
+
+Minikube sets up your laptop or workstation as a single master/node combo where you can get familiar with the API and behavior
+
+Overview
+ - Install Minikube
+ - Review Our Application Code
+ - Examine Our Kuberentes Objects
+ - Create Our Application Container
+ - Deploy Application To Cluster
+ - Update Application
+
+Development Enviornment
+  I'll be using a linux VM for this demonstration.
+  Although minikube is supported on the mac, it requires the use of a VM driver such as VMWare, VirtualBox or Hyperkit behind the scenes. Since a VM is already required, working within the Linux VM itself gives us an experience closer to an actual production cluster where linux is the only game in town.
+
+
+Install Minikube
+
+  Setup an Ubuntu VM.
+    Ubuntu Server 16.04 is a great reliable choice, but 18.04 is the latest Ubuntu LTS and works just fine.
+    I'll assume you're able to setup a VM.
+
+  Of course, if you're lucky/cool enough to be running linux on your dev machine then you can skip that step.
+
+  Install kubectl
+    sudo apt-get update && sudo apt-get install -y apt-transport-https
+    curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
+    sudo touch /etc/apt/sources.list.d/kubernetes.list
+    echo "deb http://apt.kubernetes.io/ kubernetes-xenial main" | sudo tee -a /etc/apt/sources.list.d/kubernetes.list
+    sudo apt-get update
+    sudo apt-get install -y kubectl
+
+  Install Docker
+    sudo apt update
+    sudo apt install apt-transport-https ca-certificates curl software-properties-common git
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
+    sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu bionic stable"
+    sudo apt update
+    apt-cache policy docker-ce
+    sudo apt install docker-ce
+
+  Install minikube
+    visit https://github.com/kubernetes/minikube/releases
+    curl https://github.com/kubernetes/minikube/releases/download/v0.28.2/minikube-linux-amd64
+    sudo mv minikube-linux-amd64 /usr/local/bin/minikube
+    sudo chmod +x /usr/local/bin/minikube
+
+  Start minikube cluster
+    sudo minikube start --vm-driver=none
+    "Downloading kubeadm"
+      - a general purpose kube installation utility, used by minikube under the hood to set things up, but also commonly used when configuring produciton clusters
+    "Downloading kubelet" - already explained
+
+    sudo chown -R leo:root ~/.kube
+    sudo chown -R leo:root ~/.minikube
+      retain ownership of these systems so we don't have to sudo all the time
+
+
+
+
+
+
